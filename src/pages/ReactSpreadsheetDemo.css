@@ -1,0 +1,69 @@
+.upload-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+}
+
+.sample-data-option {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.sample-data-option p {
+  color: #94a3b8;
+  margin: 0;
+}
+
+.sample-data-btn {
+  padding: 10px 20px;
+  background: #10b981;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.sample-data-btn:hover {
+  background: #059669;
+}
+
+.editable-badge {
+  background: #fef9c3;
+  color: #a16207;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  margin-left: 12px;
+  font-weight: 500;
+}
+
+/* React Spreadsheet specific overrides */
+.react-spreadsheet-wrapper {
+  overflow: auto;
+  max-height: 500px;
+}
+
+.react-spreadsheet-wrapper .Spreadsheet {
+  font-family: inherit;
+}
+
+.react-spreadsheet-wrapper .Spreadsheet__header {
+  background: #f8fafc !important;
+}
+
+.react-spreadsheet-wrapper .Spreadsheet__cell {
+  min-width: 100px;
+}
+
+.react-spreadsheet-wrapper .Spreadsheet__cell--selected {
+  box-shadow: inset 0 0 0 2px #3b82f6 !important;
+}
+
+.cell-number {
+  text-align: right;
+  color: #1d4ed8;
+}

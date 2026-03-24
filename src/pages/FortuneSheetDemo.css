@@ -1,0 +1,58 @@
+.fortune-result {
+  overflow: visible;
+}
+
+.fortune-sheet-wrapper {
+  height: 600px;
+  width: 100%;
+  position: relative;
+}
+
+.reset-btn {
+  padding: 8px 16px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.reset-btn:hover {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+.toolbar-toggles {
+  display: flex;
+  gap: 20px;
+  padding: 12px 20px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #475569;
+  cursor: pointer;
+}
+
+.toggle-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* Fortune Sheet overrides for better integration */
+.fortune-sheet-wrapper .luckysheet {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.fortune-sheet-wrapper .luckysheet-wa-editor {
+  font-family: inherit;
+}

@@ -1,25 +1,31 @@
 import React from 'react';
-import logo from './logo.svg';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import Navigation from './components/Navigation';
+import Home from './pages/Home';
+import XlsxDemo from './pages/XlsxDemo';
+import ExcelJsDemo from './pages/ExcelJsDemo';
+import ReactSpreadsheetDemo from './pages/ReactSpreadsheetDemo';
+import ReactDataGridDemo from './pages/ReactDataGridDemo';
+import FortuneSheetDemo from './pages/FortuneSheetDemo';
 import './App.css';
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <Router>
+      <div className="app">
+        <Navigation />
+        <main className="main-content">
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/xlsx" element={<XlsxDemo />} />
+            <Route path="/exceljs" element={<ExcelJsDemo />} />
+            <Route path="/react-spreadsheet" element={<ReactSpreadsheetDemo />} />
+            <Route path="/react-data-grid" element={<ReactDataGridDemo />} />
+            <Route path="/fortune-sheet" element={<FortuneSheetDemo />} />
+          </Routes>
+        </main>
+      </div>
+    </Router>
   );
 }
 
