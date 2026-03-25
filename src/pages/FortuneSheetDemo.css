@@ -50,9 +50,19 @@
 /* Fortune Sheet overrides for better integration */
 .fortune-sheet-wrapper .luckysheet {
   border-radius: 8px;
-  overflow: hidden;
 }
 
 .fortune-sheet-wrapper .luckysheet-wa-editor {
   font-family: inherit;
+}
+
+/* Ensure the dropdown button and list are visible and scrollable */
+#luckysheet-dataVerification-dropdown-btn {
+  z-index: 1002 !important;
+  cursor: pointer;
+}
+#luckysheet-dataVerification-dropdown-List {
+  z-index: 1003 !important;
+  max-height: 300px;
+  overflow-y: auto;
 }

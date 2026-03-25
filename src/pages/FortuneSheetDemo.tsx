@@ -14,6 +14,152 @@ interface SheetData {
   dataVerification?: { [key: string]: any };
 }
 
+const parseCellRef = (ref: string): { col: number; row: number } | null => {
+  const match = ref.match(/^\$?([A-Z]+)\$?(\d+)$/i);
+  if (!match) return null;
+  const colStr = match[1].toUpperCase();
+  const row = parseInt(match[2], 10);
+  let col = 0;
+  for (let i = 0; i < colStr.length; i++) {
+    col = col * 26 + (colStr.charCodeAt(i) - 64);
+  }
+  return { col, row };
+};
+
+/**
+ * Extract ALL sheet names referenced anywhere in a formula string.
+ * Handles patterns like 'Sheet Name'!A1, SheetName!A1, OFFSET(Sheet!A1,...), etc.
+ */
+const extractAllSheetNamesFromFormula = (formula: string): string[] => {
+  const names: string[] = [];
+  const regex = /'([^']+)'!|(?<![A-Za-z_])([A-Za-z_]\w*)!/g;
+  let m;
+  while ((m = regex.exec(formula)) !== null) {
+    names.push(m[1] || m[2]);
+  }
+  return Array.from(new Set(names));
+};
+
+/**
+ * Resolve a direct range reference like 'SheetName'!$A$1:$A$10 to string values.
+ */
+const resolveRangeReference = (
+  formula: string,
+  workbook: ExcelJS.Workbook
+): string[] => {
+  const clean = formula.replace(/^=/, '');
+  const m = clean.match(/^'?([^'!]+)'?!\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$/i);
+  if (!m) return [];
+
+  const [, sheetName, startCol, startRow, endCol, endRow] = m;
+  const refSheet = workbook.getWorksheet(sheetName);
+  if (!refSheet) return [];
+
+  const startRowNum = parseInt(startRow, 10);
+  const endRowNum = parseInt(endRow, 10);
+  const startColRef = parseCellRef(`${startCol}1`);
+  const endColRef = parseCellRef(`${endCol}1`);
+  if (!startColRef || !endColRef) return [];
+
+  const values: string[] = [];
+  for (let row = startRowNum; row <= endRowNum; row++) {
+    for (let col = startColRef.col; col <= endColRef.col; col++) {
+      const cell = refSheet.getCell(row, col);
+      let cellValue: any = cell.value;
+      if (cellValue === null || cellValue === undefined) continue;
+      if (typeof cellValue === 'object' && 'result' in cellValue) cellValue = cellValue.result;
+      else if (typeof cellValue === 'object' && 'richText' in cellValue)
+        cellValue = (cellValue as ExcelJS.CellRichTextValue).richText.map((rt) => rt.text).join('');
+      const str = String(cellValue).trim();
+      if (str) values.push(str);
+    }
+  }
+  return values;
+};
+
+/**
+ * Parse an address string (e.g. "A1", "$B$2:$D$50") into 0-based row/col bounds.
+ */
+const parseAddressRange = (
+  address: string
+): { startRow: number; startCol: number; endRow: number; endCol: number } | null => {
+  const rangeMatch = address.match(
+    /^\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$/i
+  );
+  if (rangeMatch) {
+    const s = parseCellRef(`${rangeMatch[1]}${rangeMatch[2]}`);
+    const e = parseCellRef(`${rangeMatch[3]}${rangeMatch[4]}`);
+    if (s && e) {
+      return { startRow: s.row - 1, startCol: s.col - 1, endRow: e.row - 1, endCol: e.col - 1 };
+    }
+  }
+  const cellMatch = address.match(/^\$?([A-Z]+)\$?(\d+)$/i);
+  if (cellMatch) {
+    const ref = parseCellRef(`${cellMatch[1]}${cellMatch[2]}`);
+    if (ref) {
+      return { startRow: ref.row - 1, startCol: ref.col - 1, endRow: ref.row - 1, endCol: ref.col - 1 };
+    }
+  }
+  return null;
+};
+
+/**
+ * Extract all non-empty string values from a specific column in a worksheet.
+ * Used as a fallback for complex formulas (OFFSET, INDIRECT, etc.).
+ */
+const extractColumnValues = (
+  sheet: ExcelJS.Worksheet,
+  colLetter: string
+): string[] => {
+  const colRef = parseCellRef(`${colLetter}1`);
+  if (!colRef) return [];
+  const values: string[] = [];
+  sheet.eachRow({ includeEmpty: false }, (row) => {
+    const cell = row.getCell(colRef.col);
+    let v: any = cell.value;
+    if (v === null || v === undefined) return;
+    if (typeof v === 'object' && 'result' in v) v = v.result;
+    else if (typeof v === 'object' && 'richText' in v)
+      v = (v as ExcelJS.CellRichTextValue).richText.map((rt) => rt.text).join('');
+    const str = String(v).trim();
+    if (str) values.push(str);
+  });
+  return values;
+};
+
+/**
+ * Extract the "field name" portion from a Dynamics-style hidden sheet name.
+ * e.g. "Options_msdyn_wastediversionsit" → "wastediversionsit"
+ *      "Lookup_hmsm_wastecode"           → "wastecode"
+ */
+const extractFieldName = (sheetName: string): string => {
+  let name = sheetName.replace(/^(Options|Lookup)_/i, '');
+  name = name.replace(/^[a-z]+_/i, '');
+  return name.toLowerCase();
+};
+
+/**
+ * Score how well a hidden-sheet field name matches a column header.
+ * Higher = better.  0 = no meaningful match.
+ */
+const columnMatchScore = (fieldName: string, headerNorm: string): number => {
+  if (fieldName === headerNorm) return 10000;
+  if (headerNorm.includes(fieldName)) return fieldName.length * 100;
+  if (fieldName.includes(headerNorm)) return headerNorm.length * 100;
+
+  // Word-overlap fallback: split both into >=3-char substrings and check overlap
+  const fw = fieldName.match(/[a-z]{3,}/g) || [];
+  const hw = headerNorm.match(/[a-z]{3,}/g) || [];
+  let score = 0;
+  for (const f of fw) {
+    for (const h of hw) {
+      if (f === h) score += f.length * 10;
+      else if (h.includes(f) || f.includes(h)) score += Math.min(f.length, h.length) * 5;
+    }
+  }
+  return score;
+};
+
 const FortuneSheetDemo: React.FC = () => {
   const [sheets, setSheets] = useState<SheetData[]>([]);
   const [fileName, setFileName] = useState('');
@@ -24,41 +170,157 @@ const FortuneSheetDemo: React.FC = () => {
 
   const handleFileUpload = useCallback(async (file: File) => {
     setFileName(file.name);
-    
+
     const arrayBuffer = await file.arrayBuffer();
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(arrayBuffer);
 
+    // ── Step 1: Build a map of workbook-level defined names ──
+    const definedNameMap = new Map<string, string[]>();
+    try {
+      const model = workbook.definedNames?.model;
+      if (model && Array.isArray(model)) {
+        for (const entry of model) {
+          if (entry.name && entry.ranges) {
+            definedNameMap.set(entry.name, entry.ranges);
+          }
+        }
+      }
+    } catch (_) { /* definedNames may not exist */ }
+
+    // ── Step 2: Identify every sheet that should be hidden ──
+    const sheetsToExclude = new Set<string>();
+
+    // 2a – Hidden / very-hidden sheets
+    workbook.eachSheet((ws) => {
+      if (ws.state === 'hidden' || ws.state === 'veryHidden') {
+        sheetsToExclude.add(ws.name);
+      }
+    });
+
+    // 2b – Sheets referenced (directly or via named ranges) by data-validation formulas.
+    //       Uses worksheet.dataValidations.model so we catch validations on empty cells too.
+    workbook.eachSheet((ws) => {
+      const dvModel = (ws as any).dataValidations?.model as
+        | Record<string, any>
+        | undefined;
+      if (!dvModel) return;
+      Object.keys(dvModel).forEach((addr) => {
+        const dv = dvModel[addr];
+        if (dv?.type !== 'list' || !dv.formulae) return;
+        const raw: string = dv.formulae[0];
+        if (!raw) return;
+        const clean = raw.replace(/^=/, '');
+
+        for (const name of extractAllSheetNamesFromFormula(clean)) {
+          sheetsToExclude.add(name);
+        }
+
+        if (!clean.includes('!') && definedNameMap.has(clean)) {
+          for (const range of definedNameMap.get(clean)!) {
+            for (const name of extractAllSheetNamesFromFormula(range)) {
+              sheetsToExclude.add(name);
+            }
+          }
+        }
+      });
+    });
+
+    // 2c – Sheets referenced by ANY defined name that are not themselves data-entry sheets.
+    const sheetsWithValidation = new Set<string>();
+    workbook.eachSheet((ws) => {
+      const dvModel = (ws as any).dataValidations?.model as
+        | Record<string, any>
+        | undefined;
+      if (dvModel && Object.keys(dvModel).length > 0) {
+        sheetsWithValidation.add(ws.name);
+      }
+    });
+    definedNameMap.forEach((ranges) => {
+      for (const range of ranges) {
+        const names = extractAllSheetNamesFromFormula(range);
+        for (const name of names) {
+          if (!sheetsWithValidation.has(name)) {
+            sheetsToExclude.add(name);
+          }
+        }
+      }
+    });
+
+    // Helper: resolve dropdown options from any formula shape
+    const resolveDropdownOptions = (
+      formula: string,
+      currentSheet: ExcelJS.Worksheet
+    ): string[] => {
+      const clean = formula.replace(/^=/, '');
+
+      // 1) Direct range reference:  'Sheet'!$A$1:$A$10
+      if (/^'?[^(]+!\$?[A-Z]+\$?\d+:\$?[A-Z]+\$?\d+$/i.test(clean)) {
+        return resolveRangeReference(clean, workbook);
+      }
+
+      // 2) Named range
+      if (definedNameMap.has(clean)) {
+        const values: string[] = [];
+        for (const range of definedNameMap.get(clean)!) {
+          values.push(...resolveRangeReference(range, workbook));
+        }
+        if (values.length > 0) return values;
+      }
+
+      // 3) Same-sheet range reference:  $A$1:$A$10  (no sheet prefix)
+      if (/^\$?[A-Z]+\$?\d+:\$?[A-Z]+\$?\d+$/i.test(clean)) {
+        return resolveRangeReference(`'${currentSheet.name}'!${clean}`, workbook);
+      }
+
+      // 4) Complex formulas with a sheet reference (OFFSET, INDIRECT, etc.)
+      //    Fall back to pulling every value from the first referenced column.
+      const refSheetNames = extractAllSheetNamesFromFormula(clean);
+      if (refSheetNames.length > 0) {
+        const colMatch = clean.match(/!\$?([A-Z]+)/i);
+        if (colMatch) {
+          const refSheet = workbook.getWorksheet(refSheetNames[0]);
+          if (refSheet) return extractColumnValues(refSheet, colMatch[1]);
+        }
+      }
+
+      // 5) Inline comma-separated values:  "Option1,Option2,Option3"
+      return clean
+        .replace(/^"/, '')
+        .replace(/"$/, '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    };
+
+    // ── Step 3: Build Fortune Sheet data for visible, non-lookup sheets ──
     const fortuneSheets: SheetData[] = [];
 
     workbook.eachSheet((worksheet) => {
+      if (sheetsToExclude.has(worksheet.name)) return;
+
       const celldata: any[] = [];
       const dataVerification: { [key: string]: any } = {};
-      
       let maxRow = 0;
       let maxCol = 0;
 
-      // Process cells
       worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-        const r = rowNumber - 1; // Fortune Sheet uses 0-based indexing
+        const r = rowNumber - 1;
         maxRow = Math.max(maxRow, r);
-        
+
         row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
-          const c = colNumber - 1; // Fortune Sheet uses 0-based indexing
+          const c = colNumber - 1;
           maxCol = Math.max(maxCol, c);
-          
+
           let value = cell.value;
           let displayValue = '';
-          
-          // Handle different cell value types
+
           if (value === null || value === undefined) {
             return;
           } else if (typeof value === 'object' && 'result' in value) {
-            // Formula result
             value = value.result;
             displayValue = String(value || '');
           } else if (typeof value === 'object' && 'richText' in value) {
-            // Rich text
             displayValue = (value as ExcelJS.CellRichTextValue).richText
               .map((rt) => rt.text)
               .join('');
@@ -72,63 +334,69 @@ const FortuneSheetDemo: React.FC = () => {
           const cellValue: any = {
             r,
             c,
-            v: {
-              v: value,
-              m: displayValue,
-            },
+            v: { v: value, m: displayValue },
           };
 
-          // Handle cell types
           if (typeof value === 'number') {
             cellValue.v.ct = { fa: 'General', t: 'n' };
-          }
-
-          // Handle data validation for this cell
-          if (cell.dataValidation) {
-            const dv = cell.dataValidation;
-            const key = `${r}_${c}`;
-            
-            if (dv.type === 'list') {
-              let options: string[] = [];
-              if (dv.formulae && dv.formulae.length > 0) {
-                // Parse the formula - could be like '"Option1,Option2,Option3"'
-                const formula = dv.formulae[0];
-                options = formula
-                  .replace(/^"/, '')
-                  .replace(/"$/, '')
-                  .split(',')
-                  .map((s: string) => s.trim());
-              }
-              
-              dataVerification[key] = {
-                type: 'dropdown',
-                type2: null,
-                value1: options.join(','),
-                value2: '',
-                checked: false,
-                remote: false,
-                prohibitInput: false,
-                hintShow: false,
-                hintText: '',
-              };
-            } else if (dv.type === 'whole' || dv.type === 'decimal') {
-              dataVerification[key] = {
-                type: 'number',
-                type2: dv.operator || 'between',
-                value1: dv.formulae?.[0] || '',
-                value2: dv.formulae?.[1] || '',
-                checked: false,
-                remote: false,
-                prohibitInput: !!dv.showErrorMessage,
-                hintShow: !!dv.showErrorMessage,
-                hintText: dv.error || '',
-              };
-            }
           }
 
           celldata.push(cellValue);
         });
       });
+
+      // ── Data validation from worksheet-level model ──
+      // This catches validations on ALL cells including empty ones.
+      const dvModel = (worksheet as any).dataValidations?.model as
+        | Record<string, any>
+        | undefined;
+      if (dvModel) {
+        Object.keys(dvModel).forEach((addr) => {
+          const dv = dvModel[addr];
+          if (!dv) return;
+          const bounds = parseAddressRange(addr);
+          if (!bounds) return;
+
+          for (let r = bounds.startRow; r <= bounds.endRow; r++) {
+            for (let c = bounds.startCol; c <= bounds.endCol; c++) {
+              const key = `${r}_${c}`;
+              if (dataVerification[key]) continue;
+
+              if (dv.type === 'list') {
+                const options =
+                  dv.formulae && dv.formulae[0]
+                    ? resolveDropdownOptions(dv.formulae[0], worksheet)
+                    : [];
+                if (options.length > 0) {
+                  dataVerification[key] = {
+                    type: 'dropdown',
+                    type2: null,
+                    value1: options.join(','),
+                    value2: '',
+                    checked: false,
+                    remote: false,
+                    prohibitInput: false,
+                    hintShow: false,
+                    hintText: '',
+                  };
+                }
+              } else if (dv.type === 'whole' || dv.type === 'decimal') {
+                dataVerification[key] = {
+                  type: 'number',
+                  type2: dv.operator || 'between',
+                  value1: dv.formulae?.[0] || '',
+                  value2: dv.formulae?.[1] || '',
+                  checked: false,
+                  remote: false,
+                  prohibitInput: !!dv.showErrorMessage,
+                  hintShow: !!dv.showErrorMessage,
+                  hintText: dv.error || '',
+                };
+              }
+            }
+          }
+        });
+      }
 
       fortuneSheets.push({
         name: worksheet.name,
@@ -138,6 +406,90 @@ const FortuneSheetDemo: React.FC = () => {
         dataVerification: Object.keys(dataVerification).length > 0 ? dataVerification : undefined,
       });
     });
+
+    // ── Step 4: Auto-map hidden lookup sheets to columns ──
+    // Dynamics 365 templates (and similar) store option values in hidden sheets
+    // named Options_<field> or Lookup_<field> but have NO standard data validation.
+    // Detect this pattern and synthesise dropdown validations.
+    const hiddenLookups: { name: string; fieldName: string; values: string[] }[] = [];
+    workbook.eachSheet((ws) => {
+      if (ws.state !== 'hidden' && ws.state !== 'veryHidden') return;
+      if (!/^(Options|Lookup)_/i.test(ws.name)) return;
+      const values: string[] = [];
+      ws.eachRow({ includeEmpty: false }, (row) => {
+        const cell = row.getCell(1);
+        let v: any = cell.value;
+        if (v === null || v === undefined) return;
+        if (typeof v === 'object' && 'result' in v) v = v.result;
+        if (typeof v === 'object' && 'richText' in v)
+          v = (v as ExcelJS.CellRichTextValue).richText.map((rt) => rt.text).join('');
+        const s = String(v).trim();
+        if (s) values.push(s);
+      });
+      if (values.length > 0) {
+        hiddenLookups.push({ name: ws.name, fieldName: extractFieldName(ws.name), values });
+      }
+    });
+
+    if (hiddenLookups.length > 0) {
+      fortuneSheets.forEach((sheet) => {
+        if (sheet.dataVerification && Object.keys(sheet.dataVerification).length > 0) return;
+
+        // Gather header cells (row 0) with normalised text
+        const headers: { col: number; norm: string }[] = [];
+        sheet.celldata.forEach((cd: any) => {
+          if (cd.r === 0 && cd.v) {
+            const text = String(cd.v.v ?? cd.v.m ?? '');
+            headers.push({ col: cd.c, norm: text.toLowerCase().replace(/[^a-z]/g, '') });
+          }
+        });
+        if (headers.length === 0) return;
+
+        // Build all (lookup, column, score) candidates
+        const candidates: { idx: number; col: number; score: number }[] = [];
+        hiddenLookups.forEach((lookup, idx) => {
+          headers.forEach((h) => {
+            const score = columnMatchScore(lookup.fieldName, h.norm);
+            if (score > 0) candidates.push({ idx, col: h.col, score });
+          });
+        });
+
+        // Greedy best-match assignment
+        candidates.sort((a, b) => b.score - a.score);
+        const usedCols = new Set<number>();
+        const usedSheets = new Set<number>();
+        const dv: { [key: string]: any } = sheet.dataVerification || {};
+
+        for (const c of candidates) {
+          if (usedCols.has(c.col) || usedSheets.has(c.idx)) continue;
+          usedCols.add(c.col);
+          usedSheets.add(c.idx);
+
+          const opts = hiddenLookups[c.idx].values.join(',');
+          const maxDataRow = Math.min(sheet.row || 50, 200);
+          for (let r = 1; r < maxDataRow; r++) {
+            const key = `${r}_${c.col}`;
+            if (!dv[key]) {
+              dv[key] = {
+                type: 'dropdown',
+                type2: null,
+                value1: opts,
+                value2: '',
+                checked: false,
+                remote: false,
+                prohibitInput: false,
+                hintShow: false,
+                hintText: '',
+              };
+            }
+          }
+        }
+
+        if (Object.keys(dv).length > 0) {
+          sheet.dataVerification = dv;
+        }
+      });
+    }
 
     setSheets(fortuneSheets);
     setShowSpreadsheet(true);
@@ -301,8 +653,10 @@ const FortuneSheetDemo: React.FC = () => {
 
           <div className="fortune-sheet-wrapper">
             <Workbook
+              key={fileName}
               ref={workbookRef}
               data={sheets}
+              allowEdit
               showToolbar={showToolbar}
               showFormulaBar={showFormulaBar}
               onChange={(data) => {

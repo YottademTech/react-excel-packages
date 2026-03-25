@@ -16,6 +16,7 @@ interface CellData {
   validation?: {
     type: string;
     formulae?: string[];
+    resolvedOptions?: string[]; // Resolved dropdown options from sheet references
   };
 }
 
@@ -95,6 +96,89 @@ const ExcelJsDemo: React.FC = () => {
     return style;
   };
 
+  // Helper function to parse cell reference (e.g., "$A$1" or "A1") to column and row
+  const parseCellRef = (ref: string): { col: number; row: number } | null => {
+    const match = ref.match(/^\$?([A-Z]+)\$?(\d+)$/i);
+    if (!match) return null;
+    
+    const colStr = match[1].toUpperCase();
+    const row = parseInt(match[2], 10);
+    
+    // Convert column letters to number (A=1, B=2, ..., Z=26, AA=27, etc.)
+    let col = 0;
+    for (let i = 0; i < colStr.length; i++) {
+      col = col * 26 + (colStr.charCodeAt(i) - 64);
+    }
+    
+    return { col, row };
+  };
+
+  // Helper function to resolve sheet reference formula to actual values
+  const resolveSheetReference = (
+    formula: string,
+    workbook: ExcelJS.Workbook
+  ): string[] => {
+    // Remove leading = if present
+    formula = formula.replace(/^=/, '');
+    
+    // Check for sheet reference pattern: 'SheetName'!$A$1:$A$10 or SheetName!A1:A10
+    const sheetRefMatch = formula.match(/^'?([^'!]+)'?!\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$/i);
+    
+    if (!sheetRefMatch) {
+      return [];
+    }
+    
+    const [, sheetName, startCol, startRow, endCol, endRow] = sheetRefMatch;
+    
+    // Find the referenced worksheet
+    const refSheet = workbook.getWorksheet(sheetName);
+    if (!refSheet) {
+      console.warn(`Referenced sheet "${sheetName}" not found`);
+      return [];
+    }
+    
+    const values: string[] = [];
+    const startRowNum = parseInt(startRow, 10);
+    const endRowNum = parseInt(endRow, 10);
+    const startColRef = parseCellRef(`${startCol}1`);
+    const endColRef = parseCellRef(`${endCol}1`);
+    
+    if (!startColRef || !endColRef) return [];
+    
+    // Extract values from the referenced range
+    for (let row = startRowNum; row <= endRowNum; row++) {
+      for (let col = startColRef.col; col <= endColRef.col; col++) {
+        const cell = refSheet.getCell(row, col);
+        let cellValue = cell.value;
+        
+        if (cellValue === null || cellValue === undefined) continue;
+        
+        // Handle different value types
+        if (typeof cellValue === 'object' && 'result' in cellValue) {
+          cellValue = cellValue.result;
+        } else if (typeof cellValue === 'object' && 'richText' in cellValue) {
+          cellValue = (cellValue as ExcelJS.CellRichTextValue).richText
+            .map((rt) => rt.text)
+            .join('');
+        }
+        
+        const strValue = String(cellValue).trim();
+        if (strValue) {
+          values.push(strValue);
+        }
+      }
+    }
+    
+    return values;
+  };
+
+  // Helper function to extract sheet name from a formula reference
+  const extractSheetNameFromFormula = (formula: string): string | null => {
+    formula = formula.replace(/^=/, '');
+    const match = formula.match(/^'?([^'!]+)'?!/i);
+    return match ? match[1] : null;
+  };
+
   const handleFileUpload = useCallback(async (file: File) => {
     setFileName(file.name);
     
@@ -110,9 +194,36 @@ const ExcelJsDemo: React.FC = () => {
       modified: workbook.modified?.toLocaleDateString(),
     });
 
+    // First pass: identify sheets that are used as lookup sources for data validation
+    const lookupSheetNames = new Set<string>();
+    
+    workbook.eachSheet((worksheet) => {
+      worksheet.eachRow({ includeEmpty: false }, (row) => {
+        row.eachCell({ includeEmpty: false }, (cell) => {
+          if (cell.dataValidation?.type === 'list' && cell.dataValidation.formulae) {
+            const formula = cell.dataValidation.formulae[0];
+            if (formula && formula.includes('!')) {
+              const sheetName = extractSheetNameFromFormula(formula);
+              if (sheetName) {
+                lookupSheetNames.add(sheetName);
+              }
+            }
+          }
+        });
+      });
+    });
+
+    console.log('Lookup sheets to hide:', Array.from(lookupSheetNames));
+
     const parsedSheets: SheetData[] = [];
 
     workbook.eachSheet((worksheet) => {
+      // Skip sheets that are only used as lookup sources
+      if (lookupSheetNames.has(worksheet.name)) {
+        console.log(`Skipping lookup sheet: "${worksheet.name}"`);
+        return;
+      }
+
       const data: CellData[][] = [];
       const columnWidths: number[] = [];
       
@@ -133,10 +244,36 @@ const ExcelJsDemo: React.FC = () => {
           
           // Check for data validation
           if (cell.dataValidation) {
+            const dv = cell.dataValidation;
             cellData.validation = {
-              type: cell.dataValidation.type || 'unknown',
-              formulae: cell.dataValidation.formulae,
+              type: dv.type || 'unknown',
+              formulae: dv.formulae,
             };
+            
+            // Resolve dropdown options from sheet references
+            if (dv.type === 'list' && dv.formulae && dv.formulae.length > 0) {
+              const formula = dv.formulae[0];
+              
+              if (formula.includes('!')) {
+                // This is a sheet reference - resolve it
+                const options = resolveSheetReference(formula, workbook);
+                if (options.length > 0) {
+                  cellData.validation.resolvedOptions = options;
+                  console.log(`Resolved dropdown from "${formula}":`, options);
+                }
+              } else {
+                // Inline list like "Option1,Option2,Option3"
+                const options = formula
+                  .replace(/^"/, '')
+                  .replace(/"$/, '')
+                  .split(',')
+                  .map((s: string) => s.trim())
+                  .filter((s: string) => s.length > 0);
+                if (options.length > 0) {
+                  cellData.validation.resolvedOptions = options;
+                }
+              }
+            }
           }
           
           // Ensure array is large enough
@@ -279,16 +416,19 @@ const ExcelJsDemo: React.FC = () => {
                           <div className="dropdown-cell">
                             <span>{cell.value}</span>
                             <span className="dropdown-indicator">▼</span>
-                            {cell.validation.formulae && (
+                            {cell.validation.resolvedOptions && cell.validation.resolvedOptions.length > 0 ? (
                               <div className="dropdown-options">
-                                {cell.validation.formulae[0]
-                                  ?.replace(/"/g, '')
-                                  .split(',')
-                                  .map((opt, i) => (
-                                    <div key={i} className="dropdown-option">
-                                      {opt.trim()}
-                                    </div>
-                                  ))}
+                                {cell.validation.resolvedOptions.map((opt, i) => (
+                                  <div key={i} className="dropdown-option">
+                                    {opt}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : cell.validation.formulae && (
+                              <div className="dropdown-options">
+                                <div className="dropdown-option dropdown-formula">
+                                  Source: {cell.validation.formulae[0]}
+                                </div>
                               </div>
                             )}
                           </div>
