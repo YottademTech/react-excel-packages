@@ -1,0 +1,197 @@
+/* React Data Grid Demo Styles */
+
+/* Text editor for regular cells */
+.rdg-text-editor {
+  width: 100%;
+  height: 100%;
+  padding: 0 8px;
+  border: 2px solid #3b82f6;
+  border-radius: 0;
+  box-sizing: border-box;
+  font-size: inherit;
+  font-family: inherit;
+  outline: none;
+  background: white;
+}
+
+/* Dropdown cell indicator */
+.rdg-dropdown-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 4px;
+}
+
+.rdg-cell-value {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rdg-dropdown-indicator {
+  color: #6b7280;
+  font-size: 0.65rem;
+  margin-left: auto;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+/* Invalid dropdown value styles */
+.rdg-invalid-value {
+  background-color: #fef2f2 !important;
+}
+
+.rdg-invalid-icon {
+  color: #dc2626;
+  font-size: 0.85rem;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.rdg-cell:has(.rdg-invalid-value) {
+  border: 2px solid #fca5a5 !important;
+  background-color: #fef2f2 !important;
+}
+
+/* Dropdown editor overlay */
+.rdg-dropdown-editor {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 9999;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  min-width: 180px;
+  max-height: 280px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.rdg-dropdown-search {
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 0.875rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.rdg-dropdown-search:focus {
+  background-color: #f9fafb;
+}
+
+.rdg-dropdown-list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 220px;
+}
+
+.rdg-dropdown-item {
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  border-bottom: 1px solid #f3f4f6;
+  transition: background-color 0.15s;
+}
+
+.rdg-dropdown-item:hover {
+  background-color: #f3f4f6;
+}
+
+.rdg-dropdown-item.selected {
+  background-color: #eff6ff;
+  color: #2563eb;
+  font-weight: 500;
+}
+
+.rdg-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.rdg-dropdown-empty {
+  padding: 12px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 0.875rem;
+  font-style: italic;
+}
+
+/* Override react-data-grid cell styles for dropdown */
+.rdg-cell:has(.rdg-dropdown-editor) {
+  overflow: visible !important;
+}
+
+/* Wrapper for grid height */
+.rdg-wrapper {
+  height: 500px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Light theme adjustments */
+.rdg-light {
+  --rdg-background-color: #fff;
+  --rdg-header-background-color: #f9fafb;
+  --rdg-row-hover-background-color: #f3f4f6;
+  --rdg-selection-color: #3b82f6;
+}
+
+/* Toolbar styles */
+.rdg-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 12px 0;
+  align-items: center;
+}
+
+.rdg-add-btn {
+  padding: 8px 16px;
+  background: #10b981;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.rdg-add-btn:hover {
+  background: #059669;
+}
+
+.rdg-delete-btn {
+  padding: 8px 16px;
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.rdg-delete-btn:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.rdg-delete-btn:disabled {
+  background: #fca5a5;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* Selection column checkbox styling */
+.rdg-checkbox-input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}

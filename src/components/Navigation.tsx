@@ -12,6 +12,8 @@ const Navigation: React.FC = () => {
     { path: '/react-spreadsheet', label: 'React Spreadsheet', description: 'MIT' },
     { path: '/react-data-grid', label: 'React Data Grid', description: 'MIT' },
     { path: '/fortune-sheet', label: 'Fortune Sheet', description: 'MIT' },
+    { path: '/revogrid', label: 'RevoGrid', description: 'MIT' },
+    { path: '/jspreadsheet', label: 'jspreadsheet CE', description: 'MIT' },
   ];
 
   return (

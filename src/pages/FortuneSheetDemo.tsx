@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Workbook, WorkbookInstance } from '@fortune-sheet/react';
 import '@fortune-sheet/react/dist/index.css';
 import ExcelJS from 'exceljs';
@@ -11,6 +11,9 @@ interface SheetData {
   celldata: any[];
   row?: number;
   column?: number;
+  config?: { columnlen?: Record<number, number> };
+  defaultRowHeight?: number;
+  defaultColWidth?: number;
   dataVerification?: { [key: string]: any };
 }
 
@@ -167,6 +170,44 @@ const FortuneSheetDemo: React.FC = () => {
   const [showToolbar, setShowToolbar] = useState(false);
   const [showFormulaBar, setShowFormulaBar] = useState(false);
   const workbookRef = useRef<WorkbookInstance>(null);
+
+  // Inject a search input into the Fortune Sheet dropdown list when it appears
+  useEffect(() => {
+    let pending = false;
+    const observer = new MutationObserver(() => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => {
+        pending = false;
+        const dropdown = document.getElementById('luckysheet-dataVerification-dropdown-List');
+        if (!dropdown || dropdown.style.display === 'none') return;
+        if (dropdown.querySelector('.dropdown-search-input')) return;
+
+        const searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.placeholder = 'Search...';
+        searchInput.className = 'dropdown-search-input';
+
+        ['mousedown', 'mouseup', 'click', 'keydown', 'change'].forEach((evt) => {
+          searchInput.addEventListener(evt, (e) => e.stopPropagation());
+        });
+
+        searchInput.addEventListener('input', () => {
+          const query = searchInput.value.toLowerCase();
+          const items = dropdown.querySelectorAll('.dropdown-List-item');
+          items.forEach((item) => {
+            const text = (item as HTMLElement).textContent?.toLowerCase() || '';
+            (item as HTMLElement).style.display = text.includes(query) ? '' : 'none';
+          });
+        });
+
+        dropdown.insertBefore(searchInput, dropdown.firstChild);
+      });
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
 
   const handleFileUpload = useCallback(async (file: File) => {
     setFileName(file.name);
@@ -370,7 +411,7 @@ const FortuneSheetDemo: React.FC = () => {
                 if (options.length > 0) {
                   dataVerification[key] = {
                     type: 'dropdown',
-                    type2: null,
+                    type2: 'false',
                     value1: options.join(','),
                     value2: '',
                     checked: false,
@@ -398,11 +439,28 @@ const FortuneSheetDemo: React.FC = () => {
         });
       }
 
+      // Auto-fit column widths based on content
+      const columnlen: Record<number, number> = {};
+      const colMaxChars: Record<number, number> = {};
+      celldata.forEach((cd: any) => {
+        const text = String(cd.v?.m ?? cd.v?.v ?? '');
+        const len = text.length;
+        if (!colMaxChars[cd.c] || len > colMaxChars[cd.c]) {
+          colMaxChars[cd.c] = len;
+        }
+      });
+      for (const col in colMaxChars) {
+        const chars = colMaxChars[col];
+        columnlen[col] = Math.max(chars * 7 + 10, 60);
+      }
+
       fortuneSheets.push({
         name: worksheet.name,
         celldata,
         row: maxRow + 1,
         column: maxCol + 1,
+        config: { columnlen },
+        defaultRowHeight: 40,
         dataVerification: Object.keys(dataVerification).length > 0 ? dataVerification : undefined,
       });
     });
@@ -472,7 +530,7 @@ const FortuneSheetDemo: React.FC = () => {
             if (!dv[key]) {
               dv[key] = {
                 type: 'dropdown',
-                type2: null,
+                type2: 'false',
                 value1: opts,
                 value2: '',
                 checked: false,
@@ -503,7 +561,7 @@ const FortuneSheetDemo: React.FC = () => {
     for (let r = 1; r <= 4; r++) {
       dataVerification[`${r}_1`] = {
         type: 'dropdown',
-        type2: null,
+        type2: 'false',
         value1: 'Engineering,Marketing,Sales,HR,Finance,Operations',
         value2: '',
         checked: false,
@@ -518,7 +576,7 @@ const FortuneSheetDemo: React.FC = () => {
     for (let r = 1; r <= 4; r++) {
       dataVerification[`${r}_4`] = {
         type: 'dropdown',
-        type2: null,
+        type2: 'false',
         value1: 'Active,On Leave,Terminated',
         value2: '',
         checked: false,
@@ -570,6 +628,16 @@ const FortuneSheetDemo: React.FC = () => {
         ],
         row: 7,
         column: 5,
+        config: {
+          columnlen: {
+            0: 100,  // Name
+            1: 90,   // Department
+            2: 80,   // Salary
+            3: 90,   // Start Date
+            4: 80,   // Status
+          },
+        },
+        defaultRowHeight: 40,
         dataVerification,
       },
     ];
@@ -649,6 +717,55 @@ const FortuneSheetDemo: React.FC = () => {
               />
               Show Formula Bar
             </label>
+            <button
+              className="add-row-col-btn"
+              onClick={() => {
+                const wb = workbookRef.current;
+                if (!wb) return;
+                const sheet = wb.getSheet();
+                const rowCount = sheet?.row ?? 0;
+                wb.insertRowOrColumn('row', rowCount - 1, 1, 'rightbottom');
+              }}
+            >
+              + Add Row
+            </button>
+            <button
+              className="delete-row-btn"
+              onClick={() => {
+                const wb = workbookRef.current;
+                if (!wb) return;
+                const selection = wb.getSelection();
+                if (!selection || selection.length === 0) {
+                  alert('Please select a row or cell first');
+                  return;
+                }
+                // Get the row range from selection
+                const sel = selection[0];
+                const startRow = sel.row[0];
+                const endRow = sel.row[1];
+                // Don't allow deleting the header row (row 0)
+                if (startRow === 0 && endRow === 0) {
+                  alert('Cannot delete the header row');
+                  return;
+                }
+                const actualStart = Math.max(startRow, 0);
+                wb.deleteRowOrColumn('row', actualStart, endRow);
+              }}
+            >
+              − Delete Row
+            </button>
+            <button
+              className="add-row-col-btn"
+              onClick={() => {
+                const wb = workbookRef.current;
+                if (!wb) return;
+                const sheet = wb.getSheet();
+                const colCount = sheet?.column ?? 0;
+                wb.insertRowOrColumn('column', colCount - 1, 1, 'rightbottom');
+              }}
+            >
+              + Add Column
+            </button>
           </div>
 
           <div className="fortune-sheet-wrapper">
@@ -659,8 +776,48 @@ const FortuneSheetDemo: React.FC = () => {
               allowEdit
               showToolbar={showToolbar}
               showFormulaBar={showFormulaBar}
+              rowHeaderWidth={46}
+              columnHeaderHeight={20}
+              defaultFontSize={13}
+              defaultRowHeight={28}
               onChange={(data) => {
                 console.log('Sheet data changed:', data);
+              }}
+              onOp={(ops) => {
+                // After a cell value changes, auto-fit the affected column width
+                const wb = workbookRef.current;
+                if (!wb) return;
+                const colsToFit = new Set<number>();
+                for (const op of ops) {
+                  // path like ["data", row, col, "m"] or ["data", row, col, "v"]
+                  if (op.op === 'replace' && op.path[0] === 'data' && op.path.length >= 3) {
+                    const col = Number(op.path[2]);
+                    if (!isNaN(col)) colsToFit.add(col);
+                  }
+                }
+                if (colsToFit.size > 0) {
+                  const sheet = wb.getSheet();
+                  if (sheet?.data) {
+                    const data2d = sheet.data;
+                    const rowCount = data2d.length;
+                    const colWidthUpdate: Record<string, number> = {};
+                    colsToFit.forEach((col) => {
+                      let maxChars = 0;
+                      for (let r = 0; r < rowCount; r++) {
+                        const cell = data2d[r]?.[col];
+                        if (!cell) continue;
+                        const text = String(cell.m ?? cell.v ?? '');
+                        if (text.length > maxChars) maxChars = text.length;
+                      }
+                      const newWidth = Math.max(maxChars * 7 + 10, 60);
+                      colWidthUpdate[String(col)] = newWidth;
+                    });
+                    wb.setColumnWidth(colWidthUpdate);
+                  }
+                }
+                // Hide the dropdown button so Fortune Sheet repositions it correctly
+                const btn = document.getElementById('luckysheet-dataVerification-dropdown-btn');
+                if (btn) btn.style.display = 'none';
               }}
             />
           </div>

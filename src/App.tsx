@@ -7,6 +7,8 @@ import ExcelJsDemo from './pages/ExcelJsDemo';
 import ReactSpreadsheetDemo from './pages/ReactSpreadsheetDemo';
 import ReactDataGridDemo from './pages/ReactDataGridDemo';
 import FortuneSheetDemo from './pages/FortuneSheetDemo';
+import RevoGridDemo from './pages/RevoGridDemo';
+import JSpreadsheetDemo from './pages/JSpreadsheetDemo';
 import './App.css';
 
 function App() {
@@ -22,6 +24,8 @@ function App() {
             <Route path="/react-spreadsheet" element={<ReactSpreadsheetDemo />} />
             <Route path="/react-data-grid" element={<ReactDataGridDemo />} />
             <Route path="/fortune-sheet" element={<FortuneSheetDemo />} />
+            <Route path="/revogrid" element={<RevoGridDemo />} />
+            <Route path="/jspreadsheet" element={<JSpreadsheetDemo />} />
           </Routes>
         </main>
       </div>
