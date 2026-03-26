@@ -401,8 +401,8 @@ const FortuneSheetDemo: React.FC = () => {
       fortuneSheets.push({
         name: worksheet.name,
         celldata,
-        row: Math.max(maxRow + 1, 50),
-        column: Math.max(maxCol + 1, 26),
+        row: maxRow + 1,
+        column: maxCol + 1,
         dataVerification: Object.keys(dataVerification).length > 0 ? dataVerification : undefined,
       });
     });
@@ -568,8 +568,8 @@ const FortuneSheetDemo: React.FC = () => {
           { r: 6, c: 0, v: { v: 'Total Salary:', m: 'Total Salary:', bl: 1 } },
           { r: 6, c: 2, v: { v: 295000, m: '$295,000', f: '=SUM(C2:C5)', ct: { fa: '$#,##0', t: 'n' } } },
         ],
-        row: 50,
-        column: 26,
+        row: 7,
+        column: 5,
         dataVerification,
       },
     ];
